@@ -1,0 +1,118 @@
+Devel::Coverage 0.1 (alpha 1)
+
+WHAT IS IT?
+
+Devel::Coverperl is a coverage analysis tool for Perl code. It is inspired by
+several factors, most notable my personal high consideration for PureAtria's
+PureCoverage tool (PureAtria and PureCoverage are copyrights of PureaAtria,
+Inc.) and my frustration at finding bugs in my code that were hidden in blocks
+that were never reached in test cases. That's what a coverage analysis tool
+does-- it shows you what parts of your code were and were not reached over
+the course of one or more runs.
+
+WHAT DOES IT DO?
+
+Devel::Coverage is activated by the -d flag, just as tools like Devel::DProf
+do. With Perl in debugging mode, Devel::Coverage is able to take note of
+subroutine entry, lines reached, and each source code file as it is compiled.
+Counts of this data are collected, and at the end a total instrumentation
+data structure is created, merged with existing data, and written to a save
+file. The data gathered includes:
+
+	Directories that had files instrumented
+	All files that were instrumented
+	Total number of runs done so far
+
+For each of the files, there is:
+
+	A list of the subroutines in this file, each with a count of hits
+	A list of the 'breakable' (executable) lines, with hit counts
+	Total number of lines
+	Modification time
+
+The modification time allows Devel::Coverage to discard stale instrumentation
+data for a file. If a file is changed between instrumentation runs, then the
+data from previous runs cannot be reliably compared to the new data
+(particularly when the change adds or deletes functions or lines).
+
+There is a *very* simple data output tool called coverperl included in the
+distribution. Future work includes much enhancement to this tool to make it
+into a useful utility. For now, you can at least look at the (fairly) raw
+data with it.
+
+What this package does *not* do is profiling. Profiling and coverage analysis
+are two different things, and the  Devel::DProf package handles the former
+task very well. Devel::Coverage will show you where your test are not
+reaching; Devel::DProf will tell you which subroutines are eating the most
+time.
+
+INSTALLATION
+
+The package should be uncompressed using the GNU zip utility. Once done and
+you have cd'd down to the directory:
+
+	gzcat Devel-Coverage-0.1.tar.gz | tar xf -
+	cd Devel/Coverage
+
+you will need to create the Makefile and verify that your package is
+complete:
+
+	perl Makefile.PL
+
+This will verify the package contents against the manifest and create the
+file Makefile. It will also do some simple configuration checking and create
+a file called "coverperl_prefs.pl" in the Coverage directory. Now all that
+needs to be done is:
+
+	make
+	#make test                    # There are not any tests, yet
+	make install                  # Assuming all tests were passed
+
+An important note here: this extension uses persistent data storage for
+collecting instrumentation data from multiple runs. At present, you will need
+one (or both) of the Storable or Data::Dumper extensions. In the future, I
+plan to include support for simpler methods available in the Perl core (most
+likely based on the DBM variants), and possibly offer automatic CPAN
+installation of missing modules. For now, you will need to take it upon
+yourself to have at least one of those two available. If you don't, MakeMaker
+will tell you :-).
+
+CAVEATS
+
+This is about as alpha as code can be without me fearing my reputation over
+its release. There are bound to be bugs, oh boy are there. And the only
+way to view the data is a super-simplistic format from coverperl. But I *am*
+working on better data analysis tools. I just wanted some early feedback on
+the core functionality here.
+
+See the ToDo file for more detail.
+
+EXAMPLES
+
+Most simple:
+
+	perl -d:Coverage script_name arg1 arg2 ...
+
+Data written to script_name.cvp. View it by:
+
+	coverperl script_name.cvp
+
+Another example; create a file .coverperl in your home directory with the
+single line "file coverage". Run several scripts, either multiple runs of the
+same script with different arguments, or different scripts entirely. All data
+goes to the file coverage.cvp, which can be view with coverperl as per above.
+There are more things that can be added to .coverperl, but it isn't documented
+yet.
+
+PROBLEMS/BUG REPORTS
+
+Please send any reports of problems or bugs to randy@byz.org. I wouldn't
+mind a short note to know that you're using this, just so I can justify its
+continued development :-).
+
+CREDITS AND LICENSES
+
+This package is copyright (c) 1997 by Randy Ray (randy@byz.org) and may be
+distributed under terms of the Artistic License used to cover Perl itself.
+See the file Artistic in the distribution of Perl 5.002 or later for details
+of copy and distribution terms. All rights reserved.

@@ -1,0 +1,14 @@
+Things yet to do:
+
+* More functional coverperl abilities (merging, per-file reporting, format
+  conversion).
+
+* GUI analysis tool
+
+* Collect run-counts per file as well as overall
+
+* Improve speed, particularly the END() part.
+
+* Add support for some dbm flavors so that the reliance on CPAN modules is
+  lessened.
+
