@@ -9,6 +9,3 @@ Things yet to do:
 
 * Improve speed, particularly the END() part.
 
-* Add support for some dbm flavors so that the reliance on CPAN modules is
-  lessened.
-

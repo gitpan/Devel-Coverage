@@ -1,15 +1,20 @@
 package Devel::Coverage;
 
+use strict;
+use vars qw(@ISA $VERSION %instrumentation %libs);
+
+use Devel::Coverage::prefs;
+use Devel::Coverage::Utils ':all';
+use File::Spec;
+use Cwd 'cwd';
+
 #
 # Set up the run-time environment
 #
 BEGIN
 {
-    use Devel::Coverage::Utils ':all';
-    use Cwd 'cwd';
-
     @ISA = qw();
-    $VERSION = '0.1';
+    $VERSION = '0.2';
 
     *DB::resolve_pathname = \&Devel::Coverage::resolve_pathname;
     *DB::inst  = \%Devel::Coverage::instrumentation;
@@ -23,17 +28,10 @@ BEGIN
     $instrumentation{dirs}  = {};
     $instrumentation{libs}  = {};
 
-    #
-    # Read the preferences file to set things like the storage method, global-
-    # level libs and excludes, picking default names, yada yada yada...
-    #
-    require 'Devel/Coverage/coverperl_prefs.pl';
-
-    unless (defined $prefs{default_file} and $prefs{default_file})
+    unless ($preferences{default_file})
     {
-        my $cmd = $0;
-        $cmd =~ s|.*/||o;
-        $prefs{default_file} = "$cmd.cvp";
+        my $cmd = (File::Spec->splitpath($0))[2];
+        $preferences{default_file} = "$cmd.cvp";
     }
 
     #
@@ -43,22 +41,28 @@ BEGIN
     #
     grep($libs{$_} = 1, @INC);
 
-    if (defined $prefs{include} and $prefs{include})
+    if ($preferences{include})
     {
-        grep($instrumentation{libs}{$_} = 1, split(/:/, $prefs{include}));
+        grep($instrumentation{libs}{$_} = 1, split(/:/,
+                                                   $preferences{include}));
     }
-    if (defined $prefs{exclude} and $prefs{exclude})
+    if ($preferences{exclude})
     {
         # Don't just undef the key, a value of 0 marks it for discrimination
-        grep($instrumentation{libs}{$_} = 0, split(/:/, $prefs{exclude}));
+        grep($instrumentation{libs}{$_} = 0, split(/:/,
+                                                   $preferences{exclude}));
     }
 
     #
     # Basic personal prefs
     #
-    read_dot_file("$ENV{HOME}/.coverperl") if (-e "$ENV{HOME}/.coverperl");
-    # Local to the running dir
-    read_dot_file("./.coverperl") if (-e "./.coverperl");
+    my $dotfile;
+    for ($ENV{HOME}, File::Spec->curdir)
+    {
+        next unless $_;
+        $dotfile = File::Spec->catfile($_, $preferences{prefs_file});
+        read_dot_file $dotfile if (-e $dotfile);
+    }
 
     $instrumentation{'cwd'} = cwd;
 }
@@ -89,9 +93,8 @@ sub END
         $instrumentation{files}{$file}{lines}[$ln] = $DB::lines{$_};
     }
 
-    my $storage = $prefs{storage} || $prefs{default_storage};
-    my $data_file = $prefs{save_file} || $prefs{default_file};
-    $data_file .= '.cvp' unless ($data_file =~ /\.cvp$/o);
+    my $data_file = $preferences{save_file} || $preferences{default_file};
+    $data_file .= '.cvp' unless (substr($data_file, -4) eq '.cvp');
 
     #
     # Normalize the filename keys. Take the full pathname, and basically
@@ -110,61 +113,59 @@ sub END
         delete $instrumentation{files}{$file};
         delete $instrumentation{files}{$sub}{fullpath};
     }
-    if ($storage)
+
+    $old_data = retrieve_data $data_file;
+
+    for $file (keys %{$old_data->{dirs}})
     {
-        $old_data = retrieve_data($data_file, $storage);
-
-        for $file (keys %{$old_data->{dirs}})
-        {
-            # Add in any entries not already known from this run
-            %tmp = map { $_, 1 } (@{$old_data->{dirs}{$file}});
-            map { $tmp{$_}++ } (@{$instrumentation{dirs}{$file}})
-                if (defined $instrumentation{dirs}{$file});
-            $instrumentation{dirs}{$file} = [sort keys %tmp];
-        }
-        for $file (keys %{$old_data->{files}})
-        {
-            if (! exists $instrumentation{files}{$file})
-            {
-                $instrumentation{files}{$file} = $old_data->{files}{$file};
-                next;
-            }
-            # Merge old data in with the new, unless the file itself is changed
-            if ($instrumentation{files}{$file}{modtime} ==
-                $old_data->{files}{$file}{modtime})
-            {
-                # Merge. If they haven't changed, we aren't worried about
-                # discrepancies in the list of lines and subs
-                for (1 .. $instrumentation{files}{$file}{totallines})
-                {
-                    next unless
-                        (defined $instrumentation{files}{$file}{lines}[$_]);
-                    $instrumentation{files}{$file}{lines}[$_] +=
-                        $old_data->{files}{$file}{lines}[$_];
-                }
-                map
-                {
-                    $instrumentation{files}{$file}{subs}{$_}{hits} +=
-                        $old_data->{files}{$file}{subs}{$_}{hits}
-                } (keys %{$instrumentation{files}{$file}{subs}});
-            }
-            else
-            {
-                # This version of the file is different for whatever reason.
-                # Warn the user if they requested, then discard the stale
-                # data
-                warn "Instrumentation of $file overwriting instead of " .
-                    "merging due to differences.\n"
-                        if ($prefs{conflict_warnings});
-            }
-        }
-        $instrumentation{runs} = $old_data->{runs} || 0;
-        $instrumentation{runs}++;
-        delete $instrumentation{'cwd'}; # No longer needed
-
-        store_data \%instrumentation, $data_file, $storage;
-        return;
+        # Add in any entries not already known from this run
+        %tmp = map { $_, 1 } (@{$old_data->{dirs}{$file}});
+        map { $tmp{$_}++ } (@{$instrumentation{dirs}{$file}})
+            if (defined $instrumentation{dirs}{$file});
+        $instrumentation{dirs}{$file} = [sort keys %tmp];
     }
+    for $file (keys %{$old_data->{files}})
+    {
+        if (! exists $instrumentation{files}{$file})
+        {
+            $instrumentation{files}{$file} = $old_data->{files}{$file};
+            next;
+        }
+        # Merge old data in with the new, unless the file itself is changed
+        if ($instrumentation{files}{$file}{modtime} ==
+            $old_data->{files}{$file}{modtime})
+        {
+            # Merge. If they haven't changed, we aren't worried about
+            # discrepancies in the list of lines and subs
+            for (1 .. $instrumentation{files}{$file}{totallines})
+            {
+                next unless
+                    (defined $instrumentation{files}{$file}{lines}[$_]);
+                $instrumentation{files}{$file}{lines}[$_] +=
+                    $old_data->{files}{$file}{lines}[$_];
+            }
+            map
+            {
+                $instrumentation{files}{$file}{subs}{$_}{hits} +=
+                    $old_data->{files}{$file}{subs}{$_}{hits};
+            } (keys %{$instrumentation{files}{$file}{subs}});
+        }
+        else
+        {
+            # This version of the file is different for whatever reason.
+            # Warn the user if they requested, then discard the stale
+            # data
+            warn "Instrumentation of $file overwriting instead of " .
+                "merging due to differences.\n"
+                    if ($preferences{conflict_warnings});
+        }
+    }
+
+    $instrumentation{runs} = $old_data->{runs} || 0;
+    $instrumentation{runs}++;
+    delete $instrumentation{'cwd'}; # No longer needed
+
+    store_data \%instrumentation, $data_file;
 
     #
     # Leave this in for now, as a means by which I can debug output without
@@ -192,10 +193,15 @@ sub END
             printf("\t%-4d %-4d\n", $file{lines}[$ln], $ln);
         }
         print "\n";
-    } (sort keys %{$instrumentation{files}});
+    } (sort keys %{$instrumentation{files}})
+        if ($preferences{debugging});
+
+    return;
 }
 
 package DB;
+
+no strict;
 
 BEGIN { $DB::trace = 1; }
 
@@ -206,6 +212,10 @@ sub postponed
     my $filename = $dbline;
     $filename =~ s/^_<//o;
     return if ($filename =~ /\(eval \d+/o);
+    # Not currently any way to derive the actual filename from the path given
+    return if ($filename =~ /autosplit into /);
+    # Skip our files
+    return if ($filename =~ m|Devel/Coverage|);
     my ($excl_key, $incl_key) = ('', '');
     for (sort { length $b <=> length $a } (grep($inst{libs}{$_} == 0,
                                                 keys %{$inst{libs}})))
@@ -218,10 +228,13 @@ sub postponed
     }
     for (sort (grep($inst{libs}{$_} == 1, keys %{$inst{libs}})))
     {
-        $incl_key = $_, last
-            if (substr($filename, 0, length($_)) eq $_);
+        if (substr($filename, 0, length($_)) eq $_)
+        {
+            $incl_key = $_;
+            last;
+        }
     }
-    return if ($excl_key and (not length($incl_key) > length($excl_key)));
+    return if ($excl_key and (length($incl_key) < length($excl_key)));
 
     #
     # OK. We're pretty sure we'll track this one after all.
@@ -234,7 +247,7 @@ sub postponed
     }
     (grep((substr($sub{$_}, 0, length($filename)+1) eq "$filename:"),
           keys %sub));
-    
+
     local $^W = 0;
     $inst{files}{$filename}{lines} = [];
     my $ln;
@@ -248,7 +261,7 @@ sub postponed
     $inst{files}{$filename}{totallines} = $#dbline;
     $inst{files}{$filename}{modtime} = (stat $filename)[9];
     $inst{files}{$filename}{fullpath} = resolve_pathname($inst{cwd},$filename);
-    my ($dir) = $inst{files}{$filename}{fullpath} =~ m|(.*)/|o;
+    my $dir = (File::Spec->splitpath($inst{files}{$filename}{fullpath}))[1];
     if (defined $inst{dirs}{$dir})
     {
         # Add this full pathname to the list, then re-sort it and re-assign it
@@ -292,9 +305,12 @@ Devel::Coverage - Perl module to perform coverage analysis
 
 =head1 DESCRIPTION
 
+This software is still very early-alpha quality. Use the tool C<coverperl> to
+analyze the files that result from running your scripts with coverage enabled.
+
 =head1 AUTHOR
 
-Randy J. Ray <rjray@uswest.com>
+Randy J. Ray <rjray@blackperl.com>
 
 =head1 SEE ALSO
 

@@ -1,5 +1,6 @@
-Changes
+ChangeLog
 Coverage.pm
+Coverage/Analysis.pm
 Coverage/Utils.pm
 MANIFEST
 Makefile.PL

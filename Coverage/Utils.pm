@@ -1,6 +1,10 @@
 package Devel::Coverage::Utils;
 
 use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
+
+use Data::Dumper;
+use Symbol;
+use File::Spec;
 require Exporter;
 
 @ISA = qw(Exporter);
@@ -22,56 +26,51 @@ require Exporter;
 #
 #   Globals:        %Devel::Coverage::libs
 #
-#   Returns:        Success:    1
-#                   Failure:    0
-#
 ##############################################################################
 sub read_dot_file
 {
     my $file = shift;
 
-    local *FILE;
-    open(FILE, "<$file");
+    my $fh = gensym;
+    open($fh, "<$file");
     if ($?)
     {
         warn "Cannot open $file for reading: $!. Skipping.\n";
         return;
     }
-    while (defined($_ = <FILE>))
+
+    while (defined($_ = <$fh>))
     {
         chomp;
-        next if /^\#/o;
-             next if /^\s*$/o;
+        next if /^\#/;
+        next if /^\s*$/;
+
         if (/^\s*include\s+(\S+)/oi)
         {
-             next unless (-e "$1");
+            next unless (-e "$1");
             $Devel::Coverage::instrumentation{libs}->{$1} = 1;
         }
         elsif (/^\s*exclude\s+(\S+)/oi)
         {
-             next unless (-e "$1");
+            next unless (-e "$1");
             $Devel::Coverage::instrumentation{libs}->{$1} = 0;
         }
         elsif (/^\s*file\s+(.*?)\s*$/oi)
         {
-            $Devel::Coverage::prefs{save_file} = $1;
-        }
-        elsif (/^\s*storage\s+(.*?)\s*$/oi)
-        {
-            $Devel::Coverage::prefs{storage} = $1;
+            $Devel::Coverage::preferences{save_file} = $1;
         }
         elsif (/^\s*checksum\s+(.*?)\s*$/oi)
         {
-            $Devel::Coverage::prefs{checksum} = $1;
+            $Devel::Coverage::preferences{checksum} = $1;
         }
         else
         {
             warn "Unrecognized line $. of $file: $_\n";
         }
     }
-    close FILE;
+    close $fh;
 
-    1;
+    return;
 }
 
 ##############################################################################
@@ -84,8 +83,6 @@ sub read_dot_file
 #
 #   Arguments:      NAME      IN/OUT  TYPE      DESCRIPTION
 #                   $file     in      scalar    Name of file holding data
-#                   $method   in      scalar    Means by which data was
-#                                                 originally stored.
 #
 #   Globals:        None.
 #
@@ -95,53 +92,23 @@ sub read_dot_file
 ##############################################################################
 sub retrieve_data
 {
-    my ($file, $method) = @_;
+    my ($file) = @_;
 
-    my $data;
+    my ($data, %data);
 
-    eval "use $method";
-    if ($@)
+    my $fh = gensym;
+    if (-e "$file")
     {
-        die "Requested data storage method ``$method'' not available " .
-            "on this system.\nDid you configure Devel::Coverage?\n";
-    }
-
-    if ($method eq 'Storable')
-    {
-        local *FH;
-        if (-e "$file")
-        {
-            open(FH, "< $file") ||
-                die "Could not open file $file for reading: $!";
-            $data = Storable::retrieve_fd(\*FH);
-            close FH;
-        }
-        else
-        {
-            $data = {};
-        }
-    }
-    elsif ($method eq 'Data::Dumper')
-    {
-        local *FH;
-        if (-e "$file")
-        {
-            open(FH, "< $file") ||
-                die "Could not open file $file for reading: $!";
-            $data = join('', <FH>);
-            close FH;
-            $data =~ /^/mo; $data = $';
-            eval $data;
-            $data = \%data;
-        }
-        else
-        {
-            $data = {};
-        }
+        open($fh, "< $file") ||
+            die "Could not open file $file for reading: $!";
+        $data = join('', <$fh>);
+        close $fh;
+        $data =~ /^/mo; $data = $';
+        eval $data;
+        $data = \%data;
     }
     else
     {
-        warn "Storage method $method not yet supported. Sorry.";
         $data = {};
     }
 
@@ -159,9 +126,8 @@ sub retrieve_data
 #   Arguments:      NAME      IN/OUT  TYPE      DESCRIPTION
 #                   $data     in      hashref   Data to write.
 #                   $file     in      scalar    File name to write to
-#                   $method   in      scalar    Desired storage method
 #
-#   Globals:        $prefs{backup} - does the user want a backup of the old?
+#   Globals:        $preferences{backup} - does user want a backup of the old?
 #
 #   Returns:        Success:    1
 #                   Failure:    0
@@ -169,41 +135,17 @@ sub retrieve_data
 ##############################################################################
 sub store_data
 {
-    my ($data, $file, $method) = @_;
+    my ($data, $file) = @_;
 
-    rename $file, "$file.bak" if (defined $Devel::Coverage::prefs{backup} and
-                                  $Devel::Coverage::prefs{backup});
+    rename $file, "$file.bak" if ($Devel::Coverage::preferences{backup});
 
-    eval "use $method";
-    if ($@)
-    {
-        die "Requested data storage method ``$method'' not available " .
-            "on this system.\nDid you configure Devel::Coverage?\n";
-    }
+    my $fh = gensym;
+    local $Data::Dumper::Purity = 1;
+    local $Data::Dumper::Indent = 0;
 
-    if ($method eq 'Storable')
-    {
-        local *FH;
-
-        open(FH, "> $file") || die "Could not open $file for writing: $!";
-        Storable::store_fd($data, \*FH);
-        close FH;
-    }
-    elsif ($method eq 'Data::Dumper')
-    {
-        local *FH;
-        local $Data::Dumper::Purity = 1;
-        local $Data::Dumper::Indent = 0;
-
-        open(FH, "> $file") || die "Could not open $file for writing: $!";
-        print FH Data::Dumper->Dumpxs([$data], [qw(*data)]);
-        close FH;
-    }
-    else
-    {
-        warn "Storage method $method not yet supported. Sorry.";
-        return 0;
-    }
+    open($fh, "> $file") || die "Could not open $file for writing: $!";
+    print $fh (Data::Dumper->Dumpxs([$data], [qw(*data)]));
+    close $fh;
 
     1;
 }
@@ -226,13 +168,11 @@ sub resolve_pathname
 {
     my ($cwd, $file) = @_;
 
-    return $file if ($file =~ m|^/|o);
-    return "$cwd/$file" if ($file !~ /^\./o);
-
-    # Yuck
-    $file = "$cwd/$file";
-    my @old_path = split(/\//, $file);
+    $file = File::Spec->catfile($cwd, $file)
+	unless File::Spec->file_name_is_absolute($file);
+    my @old_path = File::Spec->splitdir($file);
     my @new_path = ();
+
     for (@old_path)
     {
         next if (! $_);
@@ -248,5 +188,5 @@ sub resolve_pathname
         push(@new_path, $_);
     }
 
-    join('/', @new_path);
+    File::Spec->catfile('', @new_path);
 }

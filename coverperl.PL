@@ -34,13 +34,17 @@ $Config{'startperl'}
 # In the following, perl variables are not expanded during extraction.
 
 print OUT <<'!NO!SUBS!';
+    eval 'exec perl -S $0 "$@"'
+	if 0;
+    eval 'exec perl -S $0 "$@"'
+        if 0;
 ##############################################################################
 #
-#   @(#)$Id: coverperl.PL,v 1.1 1997/09/01 23:06:59 rjray Exp rjray $  
+#   @(#)$Id: coverperl.PL,v 1.3 2000/07/17 07:41:10 rjray Exp $
 #
-#   Description:    
+#   Description:    Very basic screen-oriented dump of coverage data
 #
-#   Functions:      
+#   Functions:      None.
 #
 #   Libraries:      Devel::Coverage::Utils
 #                   Storable (maybe)
@@ -48,21 +52,28 @@ print OUT <<'!NO!SUBS!';
 #
 ##############################################################################
 
-use lib '/u/rjray';
+use 5.005;
+use strict;
+use vars qw($dotfile $data %inst $sub $start $end $ln);
+
+use File::Spec;
+
 use Devel::Coverage::Utils qw(read_dot_file retrieve_data);
+use Devel::Coverage::prefs;
 
-require 'Devel/Coverage/coverperl_prefs.pl';
-read_dot_file("$ENV{HOME}/.coverperl") if (-e "$ENV{HOME}/.coverperl");
-read_dot_file("./.coverperl") if (-e "./.coverperl");
-
-*prefs = \%Devel::Coverage::prefs;
+for ($ENV{HOME}, File::Spec->curdir)
+{
+    next unless $_;
+    $dotfile = File::Spec->catfile($_, $preferences{prefs_file});
+    read_dot_file $dotfile if (-e $dotfile);
+}
 
 my $file = shift(@ARGV);
-$file = $prefs{default_file} unless ($file);
+$file = $preferences{default_file} unless ($file);
 
 die "No CoverPerl data file $file" unless (-e "$file");
 
-$data = retrieve_data($file, ($prefs{storage} || $prefs{default_storage}));
+$data = retrieve_data $file;
 %inst = %{$data};
 
 print "Total of $inst{runs} instrumentation runs.\n\n";
@@ -72,23 +83,23 @@ for $file (sort keys %{$inst{files}})
     print "$file\n";
     for $sub (sort keys %{$inst{files}{$file}{subs}})
     {
-	next if ($sub =~ /::(BEGIN|END)$/o);
-	printf("\t%-3d %s\n",
-	       ($inst{files}{$file}{subs}{$sub}{hits} || 0), $sub);
-	($start, $end) =
-	    $inst{files}{$file}{subs}{$sub}{dbinfo} =~ /^.*:(\d+)-(\d+)/o;
-	for ($ln = $start; $ln <= $end; $ln++)
-	{
-	    next unless (defined $inst{files}{$file}{lines}[$ln]);
-	    printf("\t\t%-4d line %-4d\n",
-		   $inst{files}{$file}{lines}[$ln], $ln);
-	    undef $inst{files}{$file}{lines}[$ln];
-	}
+        next if ($sub =~ /::(BEGIN|END)$/o);
+        printf("\t%-3d %s\n",
+               ($inst{files}{$file}{subs}{$sub}{hits} || 0), $sub);
+        ($start, $end) =
+            $inst{files}{$file}{subs}{$sub}{dbinfo} =~ /^.*:(\d+)-(\d+)/o;
+        for ($ln = $start; $ln <= $end; $ln++)
+        {
+            next unless (defined $inst{files}{$file}{lines}[$ln]);
+            printf("\t\t%-4d line %-4d\n",
+                   $inst{files}{$file}{lines}[$ln], $ln);
+            undef $inst{files}{$file}{lines}[$ln];
+        }
     }
     for ($ln = 1; $ln <= $inst{files}{$file}{totallines}; $ln++)
     {
-	next unless (defined $inst{files}{$file}{lines}[$ln]);
-	printf("\t%-4d line %-4d\n", $inst{files}{$file}{lines}[$ln], $ln);
+        next unless (defined $inst{files}{$file}{lines}[$ln]);
+        printf("\t%-4d line %-4d\n", $inst{files}{$file}{lines}[$ln], $ln);
     }
     print "\n";
 }

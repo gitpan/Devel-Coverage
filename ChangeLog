@@ -1,0 +1,14 @@
+Revision history for Perl extension Devel::Coverage.
+
+0.1  Wed Aug 27 12:37:31 1997
+	- original version; created by h2xs 1.18
+
+	Basic core functionality released as 0.1 on Sep 1
+
+0.2  Mon Jul 17 01:20:56 PDT 2000
+	- second alpha release
+
+	Complete overhaul of most of the code. Now requires Perl 5.005 and
+	automatically uses the Data::Dumper module to store data between
+	instrumentation runs. The coverperl script is functional, albeit
+	minimalist.
